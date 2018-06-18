@@ -2,3 +2,4 @@ nexdata
 __pycache__
 unet_model_trained
 .ipynb_checkpoints
+unet_model
