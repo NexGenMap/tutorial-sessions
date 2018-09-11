@@ -4,6 +4,7 @@ warnings.filterwarnings("ignore")
 import os
 import gdal
 import osr
+import sys
 
 import numpy as np
 import tensorflow as tf
@@ -21,10 +22,10 @@ from matplotlib.ticker import FuncFormatter
 import urllib.request
 import zipfile
 
-from models import unet as md
-
-
 SEED=1989
+
+def import_repository(dirname):
+    sys.path.append(dirname)
 
 def download_extract_zipfile(file_url, filename):
     urllib.request.urlretrieve(file_url, filename)
@@ -35,7 +36,10 @@ def download_extract_zipfile(file_url, filename):
 
 def rescale_01(data):
     return 2 * (data - np.min(data))/(np.max(data) - np.min(data)) - 1
-    
+
+def image_info(imagefile):
+  print(gdal.Info(imagefile, deserialize=True)) 
+
 def vis_refimage(filepath, color_array=['white','green']):
   
   ds = gdal.Open(filepath)
@@ -58,13 +62,19 @@ def vis_image(filepath, bands=[1,2,3]):
   data_equalized = []
   for band in bands:
       if (len(bands) == 1): # Only one band
-        data_equalized.append( exposure.equalize_adapthist(rescale_01(data)) )
+        data_equalized.append( exposure.equalize_adapthist(rescale_01(data[band, :, :])) )
       else:
         data_equalized.append( exposure.equalize_adapthist(rescale_01(data[band-1, :, :])) )
   
-  if (len(bands) > 1):
-      data_equalized = np.stack(data_equalized)
-      data_equalized = data_equalized.transpose((1, 2, 0))
+  if (len(bands) == 1):
+    cmap = 'binary'
+    title = '   B'
+    data_equalized = data_equalized[0]
+  else:
+    cmap = None
+    title = '   RGB'
+    data_equalized = np.stack(data_equalized)
+    data_equalized = data_equalized.transpose((1, 2, 0))
   
   x_start, pixel_width, _, y_start, _, pixel_height = ds.GetGeoTransform()
   x_end = x_start + ds.RasterXSize * pixel_width
@@ -76,7 +86,7 @@ def vis_image(filepath, bands=[1,2,3]):
   title = filepath + '   RGB' + str(bands)
 
   ax.set_title(title, fontsize=20)
-  img = ax.imshow(data_equalized, extent=extent, origin='upper')
+  img = ax.imshow(data_equalized, extent=extent, origin='upper', cmap=cmap)
 
 def read_image_data(filepaths):
   
