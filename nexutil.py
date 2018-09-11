@@ -18,11 +18,24 @@ from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
 from matplotlib.ticker import FuncFormatter
 
+import urllib.request
+import zipfile
+
 from models import unet as md
 
 
 SEED=1989
 
+def download_extract_zipfile(file_url, filename):
+    urllib.request.urlretrieve(file_url, filename)
+
+    zip_ref = zipfile.ZipFile(filename, 'r')
+    zip_ref.extractall('.')
+    zip_ref.close()
+
+def rescale_01(data):
+    return 2 * (data - np.min(data))/(np.max(data) - np.min(data)) - 1
+    
 def vis_refimage(filepath, color_array=['white','green']):
   
   ds = gdal.Open(filepath)
@@ -45,13 +58,13 @@ def vis_image(filepath, bands=[1,2,3]):
   data_equalized = []
   for band in bands:
       if (len(bands) == 1): # Only one band
-        data_equalized.append( exposure.equalize_adapthist(data) )
+        data_equalized.append( exposure.equalize_adapthist(rescale_01(data)) )
       else:
-        data_equalized.append( exposure.equalize_adapthist(data[band-1, :, :]) )
-      
-
-  data_equalized = np.stack(data_equalized)
-  data_equalized = data_equalized.transpose((1, 2, 0))
+        data_equalized.append( exposure.equalize_adapthist(rescale_01(data[band-1, :, :])) )
+  
+  if (len(bands) > 1):
+      data_equalized = np.stack(data_equalized)
+      data_equalized = data_equalized.transpose((1, 2, 0))
   
   x_start, pixel_width, _, y_start, _, pixel_height = ds.GetGeoTransform()
   x_end = x_start + ds.RasterXSize * pixel_width
