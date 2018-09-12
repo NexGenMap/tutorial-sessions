@@ -59,6 +59,8 @@ def vis_image(filepath, bands=[1,2,3]):
   ds = gdal.Open(filepath)
   
   data = ds.ReadAsArray()
+  if (data.ndim == 2):
+    data = np.stack([data])
   data_equalized = []
   for band in bands:
       if (len(bands) == 1): # Only one band
@@ -125,11 +127,14 @@ def read_image_data(filepaths):
 
   return data_struct
 
-def stats(data_struct, axis=None):
+def stats(data_struct, nodata=None, axis=None):
 
   data = data_struct['data']
   nfiles = data_struct['nfiles']
   nbands = data_struct['nbands']
+
+  if nodata is not None:
+  	data = np.ma.masked_array(data, data == nodata)
 
   minPerBand = np.min(data, axis=(2,3))
   maxPerBand = np.max(data, axis=(2,3))
@@ -158,6 +163,9 @@ def stats(data_struct, axis=None):
                 .format(bandname, np.min(data[:,j,:,:]), np.max(data[:,j,:,:]), np.mean(data[:,j,:,:]),
                             np.median(data[:,j,:,:]), np.std(data[:,j,:,:]), np.var(data[:,j,:,:])
                 ))
+def stats_from_files(files_array, nodata=None):
+	data_struct = read_image_data(files_array)
+	stats(data_struct, nodata)
 
 def vis_histograms(data_struct, bands=[0,1,2,3], colors=['red', 'green', 'blue', 'purple'], nbins = 256):
 
@@ -170,8 +178,8 @@ def vis_histograms(data_struct, bands=[0,1,2,3], colors=['red', 'green', 'blue',
     
     filename = data_struct['filenames'][file]
     
-    for band in range(data_struct['nbands']):
-      
+    for band in bands:
+
       ax_data = np.reshape(data[file,band,:,:],-1)
       ax_position = positions[file]
       ax_color = colors[band]
