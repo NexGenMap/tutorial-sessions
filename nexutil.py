@@ -24,49 +24,69 @@ import zipfile
 
 SEED=1989
 
-def import_repository(dirname):
-    sys.path.append(dirname)
+def import_repository(dirname, replace_last = False):
+  if (replace_last):
+    sys.path = sys.path[:-1]
+  
+  sys.path.append(dirname)
 
-def download_extract_zipfile(file_url, filename):
-    urllib.request.urlretrieve(file_url, filename)
+def download_extract_zipfile(file_url, filename, destination='.'):
+  print("Downloading from " + file_url)
+  urllib.request.urlretrieve(file_url, filename)
 
-    zip_ref = zipfile.ZipFile(filename, 'r')
-    zip_ref.extractall('.')
-    zip_ref.close()
+  if destination != '.' and not os.path.exists(destination):
+    os.makedirs(destination)
+
+  print("Extracting to " + destination)
+  zip_ref = zipfile.ZipFile(filename, 'r')
+  zip_ref.extractall(destination)
+  zip_ref.close()
 
 def rescale_01(data):
-    return 2 * (data - np.min(data))/(np.max(data) - np.min(data)) - 1
+    return (data - np.min(data))/(np.max(data) - np.min(data))
 
 def image_info(imagefile):
   print(gdal.Info(imagefile, deserialize=True)) 
 
-def vis_refimage(filepath, color_array=['white','green']):
+def vis_refimage(filepath, color_array=['white','green'], zoom=1):
   
   ds = gdal.Open(filepath)
   data = ds.ReadAsArray()
   
+  scale_factor = (1/zoom)
+
   x_start, pixel_width, _, y_start, _, pixel_height = ds.GetGeoTransform()
-  x_end = x_start + ds.RasterXSize * pixel_width
-  y_end = y_start + ds.RasterYSize * pixel_height
+  x_end = x_start + ds.RasterXSize * pixel_width * scale_factor
+  y_end = y_start + ds.RasterYSize * pixel_height * scale_factor
   
+  if zoom > 1:
+    x_size, y_size = data.shape
+    
+    x1 = y1 = 0 # TODO implement offset
+    x2 = int(x_size * scale_factor)
+    y2 = int(y_size * scale_factor)
+    
+    data = data[x1:x2, y1:y2]
+
   _, ax = plt.subplots(figsize=(15, 10))
   extent = (x_start, x_end, y_start, y_end)
 
   ax.set_title(filepath, fontsize=20)
   img = ax.imshow(data, extent=extent, origin='upper', cmap=colors.ListedColormap(color_array))
 
-def vis_image(filepath, bands=[1,2,3]):
+def vis_image(filepath, bands=[1,2,3], scale_factor = 1.0, zoom=1):
   ds = gdal.Open(filepath)
   
   data = ds.ReadAsArray()
+  data = data*scale_factor
   if (data.ndim == 2):
     data = np.stack([data])
   data_equalized = []
   for band in bands:
       if (len(bands) == 1): # Only one band
-        data_equalized.append( exposure.equalize_adapthist(rescale_01(data[band, :, :])) )
+        data_equalized.append( exposure.equalize_hist(rescale_01(data[band, :, :])) )
       else:
-        data_equalized.append( exposure.equalize_adapthist(rescale_01(data[band-1, :, :])) )
+        data_equalized.append( exposure.equalize_hist(rescale_01(data[band-1, :, :])) )
   
   if (len(bands) == 1):
     cmap = 'binary'
@@ -78,14 +98,25 @@ def vis_image(filepath, bands=[1,2,3]):
     data_equalized = np.stack(data_equalized)
     data_equalized = data_equalized.transpose((1, 2, 0))
   
+  scale_factor = (1/zoom)
+
   x_start, pixel_width, _, y_start, _, pixel_height = ds.GetGeoTransform()
-  x_end = x_start + ds.RasterXSize * pixel_width
-  y_end = y_start + ds.RasterYSize * pixel_height
+  x_end = x_start + ds.RasterXSize * pixel_width * scale_factor
+  y_end = y_start + ds.RasterYSize * pixel_height * scale_factor
   
   _, ax = plt.subplots(figsize=(15, 10))
   extent = (x_start, x_end, y_start, y_end)
 
   title = filepath + '   RGB' + str(bands)
+
+  if zoom > 1:
+    x_size, y_size, _ = data_equalized.shape
+    
+    x1 = y1 = 0 # TODO implement offset
+    x2 = int(x_size * scale_factor)
+    y2 = int(y_size * scale_factor)
+    
+    data_equalized = data_equalized[x1:x2, y1:y2, :]
 
   ax.set_title(title, fontsize=20)
   img = ax.imshow(data_equalized, extent=extent, origin='upper', cmap=cmap)
@@ -252,6 +283,35 @@ def generate_chips(data_struct, file_idx=0, chip_size = 128):
 
   return chip_struct
 
+def vis_chip_from_numpy(input_chip, expect_chip=None, idx=0, bands=[1,2,3], color_array=['white','green'], title_prefix = 'expected'):
+
+  chip_title = 'chip-{}   RGB{}'.format(idx, bands)
+  chip_data = input_chip[idx,:,:,:]
+
+  data_equalized = []
+  for band in bands:
+    data_equalized.append( exposure.equalize_hist(chip_data[:, :, band-1]) )
+
+  data_equalized = np.stack(data_equalized)
+  data_equalized = data_equalized.transpose((1, 2, 0))
+
+  if (expect_chip is not None):
+    _, ax = plt.subplots(ncols=2, figsize=(8,4))
+    ax_data = ax[0]
+    ax_ref = ax[1]
+
+    ref_title = title_prefix+'-{}'.format(idx)
+    expect_data = expect_chip[idx,:,:,:]
+
+    ax_ref.set_title(ref_title, fontsize=15)
+    img = ax_ref.imshow(expect_data[:,:,0], origin='upper', cmap=colors.ListedColormap(color_array))
+
+  else:
+    _, ax_data = plt.subplots(figsize=(4,4))
+
+  ax_data.set_title(chip_title, fontsize=15)
+  img = ax_data.imshow(data_equalized, origin='upper')
+
 def vis_chip(chip_struct, chip_ref_struct=None, idx=0, bands=[1,2,3], color_array=['white','green']):
 
   chip_title = 'chip-{}   RGB{}'.format(idx, bands)
@@ -263,7 +323,7 @@ def vis_chip(chip_struct, chip_ref_struct=None, idx=0, bands=[1,2,3], color_arra
 
   data_equalized = []
   for band in bands:
-    data_equalized.append( exposure.equalize_adapthist(chip_data[band-1, :, :]) )
+    data_equalized.append( exposure.equalize_hist(chip_data[band-1, :, :]) )
 
   data_equalized = np.stack(data_equalized)
   data_equalized = data_equalized.transpose((1, 2, 0))
@@ -305,7 +365,7 @@ def vis_chipdata(chip_data, chip_dataref=None, idx=0, bands=[1,2,3], color_array
 
   data_equalized = []
   for band in bands:
-    data_equalized.append( exposure.equalize_adapthist(chip_data[:, :, band-1]) )
+    data_equalized.append( exposure.equalize_hist(chip_data[:, :, band-1]) )
 
   data_equalized = np.stack(data_equalized)
   data_equalized = data_equalized.transpose((1, 2, 0))
